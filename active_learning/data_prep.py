@@ -346,7 +346,6 @@ class MasterDataset2:
             y = np.array(csv['y'])
         else:
             y = np.zeros(len(csv))
-        print(y)
         return smiles, x, y
 
     def __len__(self) -> int:

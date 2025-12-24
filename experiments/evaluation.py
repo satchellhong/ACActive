@@ -8,6 +8,8 @@ from tqdm.auto import tqdm
 import itertools
 import argparse
 from active_learning.screening_ import active_learning
+import logging
+import glob
 
 PARAMETERS = {'max_screen_size': [1000],
               'n_start': [64],
@@ -117,3 +119,25 @@ if __name__ == '__main__':
                                 output=args.output,
                                 assay_active = args.assay_active_values,
                                 assay_inactive = args.assay_inactive_values)
+
+    def cleanup_unimol_tools_logs():
+        # 1) 열려 있는 FileHandler 닫기
+        for logger_name in list(logging.Logger.manager.loggerDict.keys()) + [""]:
+            logger = logging.getLogger(logger_name)
+            for h in logger.handlers[:]:
+                fn = getattr(h, "baseFilename", None)
+                if fn and "unimol_tools_" in os.path.basename(fn):
+                    logger.removeHandler(h)
+                    try:
+                        h.close()
+                    except Exception:
+                        pass
+
+        # 2) 파일 삭제
+        for fn in glob.glob("logs/unimol_tools_*.log"):
+            try:
+                os.remove(fn)
+            except FileNotFoundError:
+                pass
+
+    cleanup_unimol_tools_logs()
