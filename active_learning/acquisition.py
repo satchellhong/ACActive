@@ -572,15 +572,13 @@ def round_exploitation(logits_N_K_C: Tensor, smiles: np.ndarray[str], screen_los
 
 def evaluation_exploitation(logits_N_K_C: Tensor, smiles: np.ndarray[str], screen_loss, classification=False, output='./result/output.csv', n: int = 1, **kwargs) -> np.ndarray[str]:
     """ Get the n highest predicted samples """
-    
+    alpha = 1.5
     if classification:
         probs = F.softmax(logits_N_K_C, dim=-1)
         probs = torch.mean(probs, dim=1)[:, 1]
     else:
-        probs = logits_N_K_C.squeeze()
-    # probs = torch.sigmoid(logits_N_K_C.squeeze())
-    # probs = F.softmax(logits_N_K_C.squeeze(), dim=-1)
-    # probs = torch.mean(probs, dim=1)[:, 1]
+        probs = F.sigmoid(alpha * logits_N_K_C.squeeze())
+        
     screen_loss = screen_loss.squeeze().float()
     idx = torch.argsort(probs, descending=True)
 

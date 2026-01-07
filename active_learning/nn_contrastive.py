@@ -106,11 +106,6 @@ class MLP(torch.nn.Module):
             x = F.relu(x)
             # x = self.dropout(x)
             a += 1
-        # for block in self.blocks:
-        #     x = block(x)
-            # if a == 2:
-            #     break
-            # a += 1
         
         return x
 
@@ -1487,96 +1482,7 @@ class Model_triple(torch.nn.Module):
             bar.set_postfix(loss=f'{epoch_loss:.4f}')
             self.train_loss.append(epoch_loss)
 
-            # if valid_loader is not None:
-            #     self.model.eval()
-            #     valid_loss = 0.0
-            #     val_items = 0
-
-            #     with torch.no_grad(), torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
-            #         for batch in valid_loader:
-            #             if self.architecture in ['gcn', 'gat', 'gin']:
-            #                 batch.to(self.device)
-            #                 y = batch.y
-            #                 if hasattr(batch, "fp"):
-            #                     y_hat = self.model(batch.x.float(), batch.edge_index, batch.batch, batch.fp)
-            #                 else:
-            #                     y_hat = self.model(batch.x.float(), batch.edge_index, batch.batch)
-            #             else:
-            #                 *xs, y = [t.to(self.device) for t in batch]
-            #                 y_hat = self.model(*xs)
-
-            #             loss = self.loss_fn(y_hat, y.squeeze())
-            #             valid_loss += loss.item() * len(y)
-            #             val_items += len(y)
-
-            #     epoch_valid_loss = valid_loss / val_items
-
-            #     # best model 저장 (optional)
-            #     if epoch_valid_loss < best_valid_loss:
-            #         best_valid_loss = epoch_valid_loss
-            #         best_model_state = self.model.state_dict()
-            #         best_epoch = epoch
-
             self.epoch += 1
-        # for param in self.model.parameters():
-        #     param.requires_grad = False
-        # for epoch in range(50):
-        #     running_loss = 0
-        #     items = 0
-        #     self.model.eval()
-        #     self.cliff_prediction_module.train()
-        #     for idx, batch in enumerate(dataloader):
-
-        #         self.optimizer.zero_grad()
-
-        #         with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
-        #             *xs, y = [t.to(self.device) for t in batch]
-        #             y_hat, embeddings = self.model(*xs, return_feature = True)
-        #             y_hat_cliff = self.cliff_prediction_module(embeddings, embeddings)
-
-        #             true_sim =self.calculate_fp_similarity_matrix(xs[0], xs[0])
-        #             true_activity = y.view(-1, 1)
-        #             true_act_i = true_activity.unsqueeze(1)
-        #             true_act_j = true_activity.unsqueeze(0)
-        #             true_delta_act = torch.abs(true_act_i - true_act_j)
-        #             true_delta_act = true_delta_act.squeeze(-1)
-
-        #             CLIFF_SIM_THRESHOLD = 0.6
-        #             CLIFF_ACT_THRESHOLD = 1.0
-
-        #             true_cliff_labels = (true_sim > CLIFF_SIM_THRESHOLD) & \
-        #                                 (true_delta_act > CLIFF_ACT_THRESHOLD)
-        #             true_cliff_labels = true_cliff_labels.float()
-
-        #             loss_cliff = criterion_cliff(y_hat_cliff, true_cliff_labels)
-        #             lamda = 0.1
-
-        #             # triplet_loss = self.label_based_triplet_loss_cosine(embeddings=embeddings, labels=y.squeeze(), margin=0.3, tau_sim=0.5)
-        #             # mixed_inputs, targets_a, targets_b, lam = self.mixup_data(x, y, alpha=0.4)
-        #             # y_hat = self.model(mixed_inputs)
-
-        #             if len(y_hat) == 0:
-        #                 y_hat = y_hat.unsqueeze(0)
-        #             # loss = self.mixup_criterion(self.loss_fn, y_hat, targets_a.squeeze(), targets_b.squeeze(), lam)
-        #             loss = self.loss_fn(y_hat, y.squeeze())
-        #             print(loss, lamda*loss_cliff)
-        #             loss = loss + lamda*loss_cliff
-        #             # if epoch %10 == 0:
-        #             #     print(loss, triplet_loss*0.1)
-        #             # loss = loss + 0.1*triplet_loss
-
-        #             scaler.scale(loss).backward()
-        #             scaler.step(self.optimizer)
-        #             scaler.update()
-
-        #             running_loss += loss.item()
-        #             items += len(y)
-        # for param in self.model.parameters():
-        #     param.requires_grad = True
-
-        # print(best_epoch)
-        # if valid_loader is not None:
-        #     self.model.load_state_dict(best_model_state)
 
     def predict(self, dataloader: DataLoader, dir_name = '', mode = '', cycle=0) -> Tensor:
         """ Predict
@@ -1714,26 +1620,22 @@ class Model_triple(torch.nn.Module):
                         train_y_true_broadcast = train_y_true.unsqueeze(0)
 
                         conditional_scores = torch.where(
-                            train_y_true_broadcast == 1,  # Labeled Set Y_TRUE가 1이면
-                            1.0 - cliff_probs,          # 1 - score (Smooth 원함)
-                            cliff_probs                 # Labeled Set Y_TRUE가 0이면
-                        )                               # score (Cliff 원함)
+                            train_y_true_broadcast == 1, 
+                            1.0 - cliff_probs,          
+                            cliff_probs                 
+                        )                               
                         if cycle == 2:
                             conditional_scores = conditional_scores - 0.5
                         mx = True
                         if mx:
-                            # 8. 마스킹 적용 (유사하지 않은 쌍은 무시)
                             conditional_scores[~mask] = -float('inf')
 
-                            # 9. 최종 최대값 계산 (말씀하신 대로 '최대값' 사용)
-                            # 각 Unlabeled 분자(B)에 대해 가장 큰 점수를 선택
                             final_scores_batch, _ = torch.max(conditional_scores, dim=1) # dim=1 (L 차원)
                         else:
                             masked_scores = conditional_scores.masked_fill(~mask, float('nan'))
                             final_scores_batch = torch.nanmean(masked_scores, dim=1)
                             final_scores_batch = torch.nan_to_num(final_scores_batch, nan=-float('inf'))
                         
-                        # (유사한 Labeled 샘플이 하나도 없어서 -inf가 된 경우 0으로 처리)
                         final_scores_batch[torch.isinf(final_scores_batch)] = 0.0
                         all_final_scores.append(final_scores_batch)
 
@@ -1746,25 +1648,20 @@ class Model_triple(torch.nn.Module):
                             conditional_scores = conditional_scores - 0.5
                         mx = True
                         if mx:
-                            # 8. 마스킹 적용 (유사하지 않은 쌍은 무시)
                             conditional_scores[~mask] = -float('inf')
 
-                            # 9. 최종 최대값 계산 (말씀하신 대로 '최대값' 사용)
-                            # 각 Unlabeled 분자(B)에 대해 가장 큰 점수를 선택
-                            final_scores_batch, _ = torch.max(conditional_scores, dim=1) # dim=1 (L 차원)
+                            final_scores_batch, _ = torch.max(conditional_scores, dim=1)
                         else:
                             masked_scores = conditional_scores.masked_fill(~mask, float('nan'))
                             final_scores_batch = torch.nanmean(masked_scores, dim=1)
                             final_scores_batch = torch.nan_to_num(final_scores_batch, nan=-float('inf'))
                         
-                        # (유사한 Labeled 샘플이 하나도 없어서 -inf가 된 경우 0으로 처리)
                         final_scores_batch[torch.isinf(final_scores_batch)] = 0.0
                         all_final_scores1.append(final_scores_batch)
 
                     if len(y_hat) == 0:
                         y_hat = y_hat.unsqueeze(0)
                     y_hats = torch.cat((y_hats, y_hat), 0)
-                    # y_hats_cliff = torch.cat((y_hats_cliff, y_hat_cliff), 0)
                 final_scores_tensor = torch.cat(all_final_scores, dim=0)
                 final_scores_tensor1 = torch.cat(all_final_scores1, dim=0)
                 lst1 = final_scores_tensor1.tolist()
@@ -1772,26 +1669,6 @@ class Model_triple(torch.nn.Module):
                 lst1.sort()
                 # print(lst1)
         return y_hats, final_scores_tensor
-    # def predict_loss(self, dataloader: DataLoader):
-    #     self.model.eval()
-    #     self.loss_prediction_module.eval()
-
-    #     pred_loss_list = torch.tensor([]).to(self.device)
-    #     with torch.no_grad():
-    #         with torch.autocast(device_type=self.device_type, dtype=torch.bfloat16):
-    #             for batch in dataloader:
-    #                 if self.architecture in ['gcn', 'gat', 'gin']:
-    #                     batch.to(self.device)
-    #                     if hasattr(batch, "fp"):
-    #                         y_hat = self.model(batch.x.float(), batch.edge_index, batch.batch, batch.fp)
-    #                     else:
-    #                         y_hat = self.model(batch.x.float(), batch.edge_index, batch.batch)
-    #                 else:
-    #                     *xs, y = [t.to(self.device) for t in batch]
-    #                     y_hat, feats = self.model(*xs, return_feature=True)
-    #                     pred_loss = self.loss_prediction_module([f.detach() for f in feats])
-    #                 pred_loss_list = torch.cat((pred_loss_list, pred_loss), 0)
-    #     return pred_loss_list
 
 class Ensemble_triple(torch.nn.Module):
     """ Ensemble of GCNs"""

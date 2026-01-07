@@ -242,7 +242,8 @@ class MasterDataset:
 class MasterDataset2:
     """ Dataset that holds all data in an indexable way """
     def __init__(self, name: str, df: pd.DataFrame = None, dataset: str = 'ALDH1', nbits=1024, feature = '', representation: str = 'ecfp', root: str = 'data',
-                 overwrite: bool = False, scramble_x: bool = False, scramble_x_seed: int = 1, input='./data/input.csv', assay_active = None, assay_inactive = None) -> None:
+                 overwrite: bool = False, scramble_x: bool = False, scramble_x_seed: int = 1, input='./data/input.csv', assay_active = None, assay_inactive = None,
+                 is_reverse=False) -> None:
 
         assert representation in ['ecfp', 'graph', 'scaffold'], f"'representation' must be 'ecfp' or 'graph', not {representation}"
         self.mode = name
@@ -250,6 +251,7 @@ class MasterDataset2:
         self.pth = input
         self.assay_active = assay_active
         self.assay_inactive = assay_inactive
+        self.is_reverse = is_reverse
         self.smiles, self.x, self.y = self.load()
 
         feature_map = {'cb':'chemberta', 'mf':'molformer', 'um':'unimol', 'ba':'brics_all', 'bp':'brics_pos', 'bas':'brics_all_sim', 'bps':'brics_pos_sim','fp+cb':'chemberta', 
@@ -342,6 +344,14 @@ class MasterDataset2:
             csv.loc[csv['y'].isin(self.assay_active), 'y'] = 1
             csv.loc[csv['y'].isin(self.assay_inactive), 'y'] = 0
             csv['y'] = csv['y'].astype(int)
+        elif self.mode != 'test' and self.assay_active is None:
+            csv['y'] = csv['y'].replace([np.inf, -np.inf], np.nan)
+            mu = csv['y'].mean()
+            sigma = csv['y'].std(ddof=0)   # population std (권장)
+
+            csv['y'] = (csv['y'] - mu) / sigma
+            if self.is_reverse:
+                csv['y'] = -csv['y']
         if self.mode != 'test':
             y = np.array(csv['y'])
         else:

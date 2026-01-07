@@ -85,7 +85,7 @@ def active_learning(dir, n_start: int = 64, acquisition_method: str = 'explorati
                     scrambledx_seed: int = 1, cycle_threshold=1, beta=0, start = 0, feature = '',
                     hidden = 512, at_hidden = 64, layer = '', cycle_rnn = 0, lmda = 0.01, 
                     input='./data/input.csv', input_unlabel='./data/input_unlabel.csv', output='./result/output.csv',
-                    assay_active = None, assay_inactive = None) -> pd.DataFrame:
+                    assay_active = None, assay_inactive = None, is_reverse=False) -> pd.DataFrame:
     """
     :param n_start: number of molecules to start out with
     :param acquisition_method: acquisition method, as defined in active_learning.acquisition
@@ -108,8 +108,8 @@ def active_learning(dir, n_start: int = 64, acquisition_method: str = 'explorati
     # Load the datasets
     representation = 'ecfp' if architecture in ['mlp', 'rf', 'lgb', 'xgb', 'svm'] else 'graph'
     ds_screen = MasterDataset2('screen', representation=representation, feature = feature, dataset=dataset, scramble_x=scrambledx,
-                              scramble_x_seed=scrambledx_seed, input=input, assay_active=assay_active, assay_inactive=assay_inactive)
-    ds_test = MasterDataset2('test', representation=representation, feature = feature, dataset=dataset, input=input_unlabel, assay_active=assay_active, assay_inactive=assay_inactive)
+                              scramble_x_seed=scrambledx_seed, input=input, assay_active=assay_active, assay_inactive=assay_inactive, is_reverse=is_reverse)
+    ds_test = MasterDataset2('test', representation=representation, feature = feature, dataset=dataset, input=input_unlabel, assay_active=assay_active, assay_inactive=assay_inactive, is_reverse=is_reverse)
     # Initiate evaluation trackers
 
     dir_name = f"{dir}/{seed}"
@@ -145,30 +145,6 @@ def active_learning(dir, n_start: int = 64, acquisition_method: str = 'explorati
     hits = smiles_train[np.where(y_train == 1)]
     total_mols_screened.append(len(y_train))
 
-    # Get class weight to build a weighted random sampler to balance out this data
-    # class_weights = [1 - sum((y_train == 0) * 1) / len(y_train), 1 - sum((y_train == 1) * 1) / len(y_train)]
-    # weights = [class_weights[i] for i in y_train]
-    # sampler = WeightedRandomSampler(weights, num_samples=len(y_train), replacement=True)
-
-
-    # if cycle >= start:
-    
-    # if sum((y_train == 1) * 1) > 1:
-    #     train_idx, valid_idx = stratified_index_split_with_positive(y_train, random_state=seed)
-
-    #     train_loader_balanced = to_torch_dataloader_multi([fp[train_idx] for fp in fp_train], x_train[train_idx], y_train[train_idx],
-    #                                                 batch_size=TRAINING_BATCH_SIZE,
-    #                                                 # sampler=sampler,
-    #                                                 shuffle=False, pin_memory=True)
-    #     valid_loader = to_torch_dataloader_multi([fp[valid_idx] for fp in fp_train], x_train[valid_idx], y_train[valid_idx],
-    #                                     batch_size=INFERENCE_BATCH_SIZE,
-    #                                     shuffle=False, pin_memory=True)
-    # else:
-        
-    #     train_loader_balanced = to_torch_dataloader_multi(fp_train, x_train, y_train, 
-    #                                                 batch_size=TRAINING_BATCH_SIZE,
-    #                                                 sampler=sampler,
-    #                                                 shuffle=False, pin_memory=True)
     train_loader = to_torch_dataloader_multi(fp_train, x_train, y_train,
                                     batch_size=INFERENCE_BATCH_SIZE,
                                     shuffle=False, pin_memory=True, classification=assay_active is not None)

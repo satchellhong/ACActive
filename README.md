@@ -24,11 +24,12 @@ python experiments/main.py -dataset ALDH1 -acq exploitation
 
 # Prediction
 ```bash
+# classification
+python experiments/evaluation.py --input ./data/input_classification.csv --input_unlabel ./data/input_unlabel.csv --assay_active_values active act a --assay_inactive_values inactive inact i --output ./result/output.csv
+
 # regression
 python experiments/evaluation.py --input ./data/input.csv --input_unlabel ./data/input_unlabel.csv --output ./result/output.csv
 
-# classification
-python experiments/evaluation.py --input ./data/input_classification.csv --input_unlabel ./data/input_unlabel.csv --assay_active_values active act a --assay_inactive_values inactive inact i --output ./result/output.csv
 ```
 The input is training data annotated with assay values.  
 `input.csv` must contain two columns: `smiles` and `y` (assay value).
@@ -37,6 +38,8 @@ For **classification** tasks, the model requires `assay_active_values` and `assa
 
 - `assay_active_values` contains label names corresponding to **active** compounds.
 - `assay_inactive_values` contains label names corresponding to **inactive** compounds.
+
+For **regression** tasks, higher y values indicate better performance. Add `--is_reverse` when lower y values indicate better performance.
 
 The `input_unlabel` file contains compounds to be experimentally tested.  
 `input_unlabel.csv` must contain a `smiles` column.

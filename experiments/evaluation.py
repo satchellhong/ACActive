@@ -54,9 +54,10 @@ if __name__ == '__main__':
     parser.add_argument('--output', help='output data with score. high score means high priority (column : smiles, score)', default='./result/output.csv')
     parser.add_argument("--assay_active_values", nargs="+", default=None, help="List of values to treat as Active labels (e.g., 1 active true yes).")
     parser.add_argument("--assay_inactive_values", nargs="+", default=None, help="List of values to treat as Inactive labels (e.g., 0 inactive false no).")
+    parser.add_argument("--is_reverse", help='small value are better', action="store_true")
     args = parser.parse_args()
     
-    rround=16
+    rround=0
     args.dataset = args.input
     start = 0
     args.start = start
@@ -118,7 +119,8 @@ if __name__ == '__main__':
                                 input_unlabel=args.input_unlabel,
                                 output=args.output,
                                 assay_active = args.assay_active_values,
-                                assay_inactive = args.assay_inactive_values)
+                                assay_inactive = args.assay_inactive_values,
+                                is_reverse=args.is_reverse)
 
     def cleanup_unimol_tools_logs():
         # 1) 열려 있는 FileHandler 닫기
