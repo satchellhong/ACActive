@@ -53,12 +53,12 @@ class Acquisition:
         self.rng = np.random.default_rng(seed=seed)
         self.iteration = 0
 
-    def acquire(self, logits_N_K_C: Tensor, smiles: np.ndarray[str], hits: np.ndarray[str], screen_loss=None, y_screen='', dir_name='', cliff=0, beta=0, cycle_threshold=0, n: int = 1, seed: int = 0, cycle=0,output='', classification=False) -> \
+    def acquire(self, logits_N_K_C: Tensor, smiles: np.ndarray[str], screen_loss=None, y_screen='', dir_name='', cliff=0, beta=0, cycle_threshold=0, n: int = 1, seed: int = 0, cycle=0,output='', classification=False) -> \
             np.ndarray[str]:
 
         self.iteration += 1
 
-        return self.acquisition_method[self.method](logits_N_K_C=logits_N_K_C, smiles=smiles, screen_loss=screen_loss, n=n, y_screen=y_screen, dir_name=dir_name, hits=hits,
+        return self.acquisition_method[self.method](logits_N_K_C=logits_N_K_C, smiles=smiles, screen_loss=screen_loss, n=n, y_screen=y_screen, dir_name=dir_name,
                                                     iteration=self.iteration, seed=seed, cycle=cycle, cliff=cliff, beta=beta, cycle_threshold=cycle_threshold, output=output, classification = classification,
                                                     **self.params)
 

@@ -358,6 +358,99 @@ class GIN(torch.nn.Module):
         
         return x
 
+class GINL(torch.nn.Module):
+    def __init__(self, args, need_pretrain=False):
+        super().__init__()
+
+        self.need_pretrain = need_pretrain
+        self.beta = 0.1
+
+        self.atom_embedding = torch.nn.Linear(args.mol_emb_dim, args.hidden_dim)
+
+        self.graph_conv = torch.nn.ModuleList()
+        self.graph_bn = torch.nn.ModuleList()
+        for _ in range(args.gin_graph_conv_layer):
+            gin_mlp = torch.nn.Sequential(torch.nn.Linear(args.hidden_dim, args.hidden_dim),
+                                          torch.nn.ReLU())
+            self.graph_conv.append(GINConv(nn=gin_mlp))
+            self.graph_bn.append(BatchNorm(args.hidden_dim, allow_single_element=True))
+
+        self.x_fc = torch.nn.ModuleList()
+        self.x_bn = torch.nn.ModuleList()
+        for i in range(args.gin_x_fc_layer):
+            self.x_fc.append(torch.nn.Linear(args.hidden_dim, args.hidden_dim))
+            self.x_bn.append(BatchNorm(args.hidden_dim, allow_single_element=True))
+            
+        self.fp_fc = torch.nn.ModuleList()
+        self.fp_bn = torch.nn.ModuleList()
+        for i in range(args.gin_fp_fc_layer):
+            self.fp_fc.append(torch.nn.Linear(args.hidden_dim, args.hidden_dim))
+            self.fp_bn.append(BatchNorm(args.hidden_dim, allow_single_element=True))
+
+        if args.task == 'reg':
+            self.out = torch.nn.Linear(args.hidden_dim, 1)
+            self.task = 'regression'
+        else:
+            self.out = torch.nn.Linear(args.hidden_dim, args.output_dim)
+            self.task = 'classification'
+            
+        if need_pretrain:
+            self.pretrain = PretrainGIN(args, emb_dim=300, layer_num=5)
+            self.xp_fc = torch.nn.Linear(300, args.hidden_dim)
+
+    def embed(self, graph):
+        x, edge_index, xp, edgep_index, edgep_attr, batch, fp = graph.x, graph.edge_index, graph.xp, graph.edgep_index, graph.edgep_attr, graph.batch, graph.fp
+
+        x = F.elu(self.atom_embedding(x))
+
+        for conv, bn in zip(self.graph_conv, self.graph_bn):
+            x = conv(x, edge_index)
+            x = bn(x)
+            x = F.relu(x)
+            
+        x = global_add_pool(x, batch)
+
+        for fc, bn in zip(self.x_fc, self.x_bn):
+            x = fc(x)
+            x = bn(x)
+            x = F.relu(x)
+
+        for fc, bn in zip(self.fp_fc, self.fp_bn):
+            fp = fc(fp)
+            fp = bn(fp)
+            fp = F.relu(fp)
+        
+        x = x + fp
+
+        if self.need_pretrain:
+            xp = self.pretrain(xp, edgep_index, edgep_attr, batch)
+            xp = self.xp_fc(xp)
+
+            x = x + self.beta * xp
+
+        return x
+    
+    def forward(self, graph, need_emb=True, return_feature=False):
+        if need_emb:
+            x = self.embed(graph)
+        else:
+            x = graph
+
+        emb = x
+
+        x = self.out(x)
+        if self.task == 'regression':
+            if return_feature:
+                return x, emb
+            return x
+        
+        x = F.log_softmax(x, 1)
+
+        if return_feature:
+            return x, emb
+
+        return x
+
 class Model(torch.nn.Module):
     def __init__(self, architecture: str, in_feats, n_hidden, **kwargs):
         super().__init__()

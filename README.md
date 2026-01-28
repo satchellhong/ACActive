@@ -69,10 +69,10 @@ python experiments/main.py -dataset ALDH1 -acq exploitation
 # Prediction
 ```bash
 # classification
-python experiments/evaluation.py --input ./data/input_classification.csv --input_unlabel ./data/input_unlabel.csv --assay_active_values active act a --assay_inactive_values inactive inact i --output ./result/output.csv
+python experiments/evaluation.py --input ./data/input_classification.csv --input_unlabel ./data/input_unlabel.csv --assay_active_values active act a --assay_inactive_values inactive inact i --output ./result/output.csv  --input_unlabel_smiles_col smi --input_unlabel_val_col sco
 
 # regression
-python experiments/evaluation.py --input ./data/input.csv --input_unlabel ./data/input_unlabel.csv --output ./result/output.csv
+python experiments/evaluation.py --input ./data/input.csv --input_unlabel ./data/input_unlabel.csv --output ./result/output.csv  --input_unlabel_smiles_col smi --input_unlabel_val_col sco
 
 ```
 The input is training data annotated with assay values.  

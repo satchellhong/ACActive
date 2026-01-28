@@ -1,4 +1,4 @@
-smiles,score
+smi,sco
 Cc1ccnc(Sc2nc3c(c(=O)[nH]c(=O)n3C)n2CCCc2ccccc2)n1,0
 COC(=O)CSc1nnc(CNC(=O)Cc2ccccc2)n1-c1ccccc1OC,0
 CCOC(=O)c1ccccc1NC(=O)CSc1nc(N)cc(O)n1,0

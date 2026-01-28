@@ -1,0 +1,139 @@
+"""
+
+This script contains the main active learning loop that runs all experiments.
+
+    Author: Derek van Tilborg, Eindhoven University of Technology, May 2023
+
+"""
+
+import pandas as pd
+import numpy as np
+import torch
+from active_learning.nn_contrastive_v2 import Ensemble_Model
+from active_learning.data_prep_v2 import MasterDataset2Labeled, MasterDataset2Unlabeled
+from active_learning.acquisition import Acquisition
+import os
+import random
+
+INFERENCE_BATCH_SIZE = 128
+TRAINING_BATCH_SIZE = 64
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+from sklearn.model_selection import train_test_split
+def stratified_index_split_with_positive(y: torch.Tensor, test_size=0.2, random_state=42):
+    # y가 GPU에 있으면 CPU로 옮기기 (train_test_split은 numpy 기반)
+    if y.dim() > 1 and y.size(1) == 1:
+        y = y.view(-1)
+
+    # numpy 변환 (train_test_split은 numpy만 받음)
+    if y.is_cuda:
+        y_np = y.cpu().numpy()
+    else:
+        y_np = y.numpy()
+
+    n = len(y_np)
+    indices = torch.arange(n)
+
+    # stratified split 시도
+    train_idx, valid_idx = train_test_split(
+        indices.numpy(), test_size=test_size, stratify=y_np, random_state=random_state
+    )
+
+    train_idx = torch.tensor(train_idx, dtype=torch.long)
+    valid_idx = torch.tensor(valid_idx, dtype=torch.long)
+
+    # valid에 positive가 하나도 없으면 강제 조정
+    if y[valid_idx].sum() == 0:
+        pos_idx = torch.where(y == 1)[0]
+        neg_idx = torch.where(y == 0)[0]
+
+        # positive 하나를 valid로 이동
+        chosen_pos = pos_idx[torch.randint(len(pos_idx), (1,))]
+        remaining_pos = pos_idx[pos_idx != chosen_pos]
+
+        n_valid = int(n * test_size)
+        remaining_needed = n_valid - 1
+        chosen_neg = neg_idx[torch.randperm(len(neg_idx))[:remaining_needed]]
+
+        valid_idx = torch.cat([chosen_pos, chosen_neg])
+        train_mask = torch.ones(n, dtype=torch.bool)
+        train_mask[valid_idx] = False
+        train_idx = torch.arange(n)[train_mask]
+    return train_idx, valid_idx
+
+def active_learning(dir, batch_size: int = 16, architecture: str = 'graphMVP', seed: int = 0, ensemble_size: int = 1,
+                    anchored: bool = True, dataset: str = 'ALDH1', scrambledx: bool = False,
+                    scrambledx_seed: int = 1, cycle_threshold=1, beta=0, start = 0, feature = '',
+                    hidden = 512, at_hidden = 64, layer = '', cycle_rnn = 0, lmda = 0.01, 
+                    input='./data/input.csv', input_unlabel='./data/input_unlabel.csv', output='./result/output.csv',
+                    assay_active = None, assay_inactive = None, input_val_col='y', input_unlabel_val_col='score', input_smiles_col='smiles', 
+                    input_unlabel_smiles_col='smiles', is_reverse=False, pretrain_path='') -> pd.DataFrame:
+    """
+    :param n_start: number of molecules to start out with
+    :param acquisition_method: acquisition method, as defined in active_learning.acquisition
+    :param max_screen_size: we stop when this number of molecules has been screened
+    :param batch_size: number of molecules to add every cycle
+    :param architecture: 'gcn', 'mlp', or 'rf'
+    :param seed: int 1-20
+    :param bias: 'random', 'small', 'large'
+    :param optimize_hyperparameters: Bool
+    :param ensemble_size: number of models in the ensemble, default is 10
+    :param scrambledx: toggles randomizing the features
+    :param scrambledx_seed: seed for scrambling the features
+    :return: dataframe with results
+    """
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning,
+                            message="X does not have valid feature names")
+    set_seed(seed)
+
+    # Load the datasets
+    representation = 'ecfp' if architecture in ['mlp', 'rf', 'lgb', 'xgb', 'svm'] else 'graph'
+
+    ds_train = MasterDataset2Labeled('screen', representation=representation, feature = feature, input=input, assay_active=assay_active, assay_inactive=assay_inactive, input_val_col=input_val_col, input_smiles_col=input_smiles_col, is_reverse=is_reverse)
+    ds_test = MasterDataset2Unlabeled('test', representation=representation, feature = feature, input=input_unlabel, assay_active=assay_active, assay_inactive=assay_inactive, input_unlabel_val_col=input_unlabel_val_col, input_unlabel_smiles_col=input_unlabel_smiles_col)
+
+    smiles_test = ds_test.smiles
+    train_loader = ds_train.get_dataloader(batch_size=INFERENCE_BATCH_SIZE, shuffle=False, pin_memory=True)
+    test_loader = ds_test.get_dataloader(batch_size=INFERENCE_BATCH_SIZE, shuffle=False, pin_memory=True)
+    # Initiate evaluation trackers
+
+    # build test loader
+
+
+    unlabel_df = pd.read_csv(input_unlabel)
+    
+    print("Training model")
+    M = Ensemble_Model(seed=seed, ensemble_size=ensemble_size, architecture=architecture, assay_active=assay_active, pretrain_file=pretrain_path)
+
+    M.train(train_loader)
+
+    # Do inference of the train/test/screen data
+    print("Train/test/screen inference")
+
+    screen_logits_N_K_C_2 = None
+    screen_logits_N_K_C, screen_logits_N_K_C_2 = M.predict(test_loader, train_loader)
+
+    # Select the molecules to add for the next cycle
+
+    ACQ = Acquisition(
+        method='evaluation_exploitation',
+        seed=seed,
+        unlabel_df=unlabel_df,
+        input_unlabel_smiles_col=input_unlabel_smiles_col,
+    )
+    # get output directory name only eg. output = './results/ALDH1/gcn/exploration/0/random/0' then make directory ./results/ALDH1/gcn/exploration/0/random/
+    if os.path.dirname(output) != '':
+        os.makedirs(os.path.dirname(output), exist_ok=True)
+    picks = ACQ.acquire(screen_logits_N_K_C, smiles_test, screen_loss=screen_logits_N_K_C_2, n=batch_size, seed=seed, beta=beta, cliff=cycle_rnn, cycle_threshold=cycle_threshold, output=output, classification=assay_active is not None)
+
+
+    return picks

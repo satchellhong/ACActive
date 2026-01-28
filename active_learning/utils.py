@@ -238,7 +238,7 @@ def check_featurizability(smiles: str):
 
 def molecular_graph_featurizer(smiles: str, y=None, structural_feats: bool = True, functional_feats: bool = True):
 
-    y = torch.tensor([y]).to(torch.long)
+    y = torch.tensor([y])
 
     mol = Chem.MolFromSmiles(smiles, sanitize=True)
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
@@ -733,15 +733,31 @@ def get_tanimoto_matrix(smiles: list[str], radius: int = 2, nBits: int = 1024, v
 
     return m
 
+class Graph_Dataset(torch.utils.data.Dataset):
+    def __init__(self, x, y):
+        super(Graph_Dataset, self).__init__()
+        self.x = x
+        self.y = y
 
-def to_torch_dataloader(x: Union[list, np.ndarray], y: Optional[np.ndarray] = None, **kwargs) -> \
+    def __getitem__(self, index):
+        return self.x[index], self.y[index]
+    
+    def __len__(self):
+        return len(self.x)
+    
+def to_torch_dataloader(x: Union[list, np.ndarray], y: Optional[np.ndarray] = None, classification=True, **kwargs) -> \
         Union[DataLoader, pyg_DataLoader]:
-
+        
     if type(x) is np.ndarray:
         assert y is not None, 'No y values provided'
+        if not classification:
+            return DataLoader(TensorDataset(Tensor(x), Tensor(y).unsqueeze(1).float()), **kwargs)
         return DataLoader(TensorDataset(Tensor(x), Tensor(y).unsqueeze(1).type(torch.LongTensor)), **kwargs)
     else:
-        return pyg_DataLoader(x, **kwargs)
+        #return pyg_DataLoader(x, **kwargs)
+        if not classification:
+            return pyg_DataLoader(Graph_Dataset(x, Tensor(y).unsqueeze(1).float()), **kwargs)
+        return pyg_DataLoader(Graph_Dataset(x, Tensor(y).unsqueeze(1).type(torch.LongTensor)), **kwargs)
     
 def to_torch_dataloader_multi(xs, x: Union[list, np.ndarray], y: Optional[np.ndarray] = None, pred_list = None, classification=False, **kwargs) -> \
         Union[DataLoader, pyg_DataLoader]:

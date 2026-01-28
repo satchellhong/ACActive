@@ -88,6 +88,57 @@ def split_data(df: pd.DataFrame, random_state: int = 42, screen_size: int = 5000
 
     return df_screen, df_test
 
+def mol_to_graph_data_obj_simple_3D(mol):
+    """
+    Converts rdkit mol object to graph Data object required by the pytorch
+    geometric package. NB: Uses simplified atom and bond features, and represent as indices
+    :param mol: rdkit mol object
+    return: graph data object with the attributes: x, edge_index, edge_attr """
+
+    # todo: more atom/bond features in the future
+    # atoms, two features: atom type, chirality tag
+    atom_features_list = []
+    for atom in mol.GetAtoms():
+        atom_feature = [allowable_features['possible_atomic_num_list'].index(atom.GetAtomicNum())] + \
+                       [allowable_features['possible_chirality_list'].index(atom.GetChiralTag())]
+        atom_features_list.append(atom_feature)
+    x = torch.tensor(np.array(atom_features_list), dtype=torch.long)
+
+    # bonds, two features: bond type, bond direction
+    if len(mol.GetBonds()) > 0:  # mol has bonds
+        edges_list = []
+        edge_features_list = []
+        for bond in mol.GetBonds():
+            i = bond.GetBeginAtomIdx()
+            j = bond.GetEndAtomIdx()
+            edge_feature = [allowable_features['possible_bonds'].index(bond.GetBondType())] + \
+                           [allowable_features['possible_bond_dirs'].index(bond.GetBondDir())]
+            edges_list.append((i, j))
+            edge_features_list.append(edge_feature)
+            edges_list.append((j, i))
+            edge_features_list.append(edge_feature)
+
+        # data.edge_index: Graph connectivity in COO format with shape [2, num_edges]
+        edge_index = torch.tensor(np.array(edges_list).T, dtype=torch.long)
+
+        # data.edge_attr: Edge feature matrix with shape [num_edges, num_edge_features]
+        edge_attr = torch.tensor(np.array(edge_features_list), dtype=torch.long)
+
+    else:  # mol has no bonds
+        num_bond_features = 2
+        edge_index = torch.empty((2, 0), dtype=torch.long)
+        edge_attr = torch.empty((0, num_bond_features), dtype=torch.long)
+
+    # every CREST conformer gets its own mol object,
+    # every mol object has only one RDKit conformer
+    # ref: https://github.com/learningmatter-mit/geom/blob/master/tutorials/
+    # conformer = mol.GetConformers()[0]
+    # positions = conformer.GetPositions()
+    # positions = torch.Tensor(positions)
+
+    # data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+    return x, edge_index, edge_attr
+
 from transformers import AutoTokenizer, AutoModel
 from unimol_tools import UniMolRepr
 
@@ -254,7 +305,7 @@ class MasterDataset2Labeled: # Test가 아닌경우
     """Test가 아닌경우"""
     """ Dataset that holds all data in an indexable way """
     def __init__(self, name: str, df: pd.DataFrame = None, dataset: str = 'ALDH1', nbits=1024, feature = '', representation: str = 'ecfp', root: str = 'data',
-                 overwrite: bool = False, scramble_x: bool = False, scramble_x_seed: int = 1, input='./data/input.csv', assay_active = None, assay_inactive = None, input_val_col='y', input_smiles_col='smiles', is_reverse=False) -> None:
+                 overwrite: bool = False, input='./data/input.csv', assay_active = None, assay_inactive = None, input_val_col='y', input_smiles_col='smiles', is_reverse=False) -> None:
 
         assert representation in ['ecfp', 'graph', 'scaffold'], f"'representation' must be 'ecfp' or 'graph', not {representation}"
         self.mode = name
@@ -388,7 +439,7 @@ class MasterDataset2Unlabeled: # Test인 경우
     """Test인 경우"""
     """ Dataset that holds all data in an indexable way """
     def __init__(self, name: str, df: pd.DataFrame = None, dataset: str = 'ALDH1', nbits=1024, feature = '', representation: str = 'ecfp', root: str = 'data',
-                 overwrite: bool = False, scramble_x: bool = False, scramble_x_seed: int = 1, input='./data/input.csv', assay_active = None, assay_inactive = None, input_unlabel_val_col='score', input_unlabel_smiles_col='smiles') -> None:
+                 overwrite: bool = False, input='./data/input.csv', assay_active = None, assay_inactive = None, input_unlabel_val_col='score', input_unlabel_smiles_col='smiles') -> None:
 
         assert representation in ['ecfp', 'graph', 'scaffold'], f"'representation' must be 'ecfp' or 'graph', not {representation}"
         self.mode = name
@@ -503,6 +554,154 @@ class MasterDataset2Unlabeled: # Test인 경우
             idx = [idx]
         if self.representation == 'ecfp':
             return self.x[idx], self.y[idx], self.smiles[idx], [self.feature[i][idx] for i in range(len(self.feature))]
+
+class MasterDataset:
+    """ Dataset that holds all data in an indexable way """
+    def __init__(self, name: str, df: pd.DataFrame = None, dataset: str = 'ALDH1', nbits=1024, feature = '', representation: str = 'ecfp', root: str = 'data',
+                 overwrite: bool = False, scramble_x: bool = False, scramble_x_seed: int = 1) -> None:
+
+        assert representation in ['ecfp', 'graph', 'scaffold'], f"'representation' must be 'ecfp' or 'graph', not {representation}"
+        self.representation = representation
+        self.pth = os.path.join(ROOT_DIR, root, dataset, name)
+
+
+        # If not done already, process all data. Else just load it
+        self.smiles_index, self.index_smiles, self.smiles, self.x, self.y, self.graphs, self.graphs2 = self.process(df)
+
+
+
+        feature_map = {'cb':'chemberta', 'mf':'molformer', 'um':'unimol', 'ba':'brics_all', 'bp':'brics_pos', 'bas':'brics_all_sim', 'bps':'brics_pos_sim','fp+cb':'chemberta', 
+                       'fp+mf':'molformer', 'fp+um':'unimol', 'fp+ba':'brics_all', 'fp+bp':'brics_pos', 'fp+bas':'brics_all_sim', 'fp+ps':'brics_pos_sim', 
+                       'fingerprint':'', '':'', 'fp':'fingerprint', 'gcn':'gcn', 'gat':'gat', 'gin':'gin', '0':'0'}
+
+        # self.x = smiles_to_ecfp(self.smiles, radius=3, nbits=256, silent=False)
+        # self.x = np.load(f'./DrugCLIP/{dataset}_embedding.npy')
+        self.murcko = self.x #smiles_to_murcko_ecfp(self.smiles, silent=False)
+        self.feature = []
+        self.brics = None
+
+        feature = [x for x in feature.split("+")]
+
+        self.feature_name = [feature_map[f_i] for f_i in feature]
+        # self.feature_name = ['fingerprint', 'unimol', feature_map[feature]]
+        # self.feature_name = ['molformer', 'unimol', feature_map[feature]]
+        for f in self.feature_name:
+            print(f)
+            if f == 'fingerprint':
+                self.feature.append(self.x)
+            elif f == '0':
+                self.feature.append(np.zeros(512))
+            elif f[0] != 'g':
+                self.feature.append(self.get_feature(f, dataset, name))
+            
+        if scramble_x:
+            if representation == 'ecfp':
+                self.x = scramble_features(self.x, seed=scramble_x_seed)
+            if representation == 'scaffold':
+                self.x = scramble_features(self.x, seed=scramble_x_seed)
+            if representation == 'graph':
+                self.graphs = scramble_graphs(self.graphs, seed=scramble_x_seed)
+                self.x = scramble_features(self.x, seed=scramble_x_seed)
+    
+    def get_feature(self, feature, dataset, name):
+        result = None
+        if feature in ['chemberta', 'molformer']:
+            if feature == 'chemberta':
+                if os.path.exists(f"/data2/project/junha/traversing_chem_space/data/{dataset}/chemberta_embeddings_{name}.npy"):
+                    return np.load(f"/data2/project/junha/traversing_chem_space/data/{dataset}/chemberta_embeddings_{name}.npy")
+                model_name = "seyonec/ChemBERTa-zinc-base-v1"
+            elif feature == 'molformer':
+                if os.path.exists(f"/data2/project/junha/traversing_chem_space/data/{dataset}/molformer_embeddings_{name}.npy"):
+                    return np.load(f"/data2/project/junha/traversing_chem_space/data/{dataset}/molformer_embeddings_{name}.npy")
+                model_name = "ibm/MoLFormer-XL-both-10pct"
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+            device = torch.device("cuda:1")
+            self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True).to(device)
+            batch_size = 1024
+            embedding = []
+            smiles_list = list(self.smiles)
+            for i in range(0, len(smiles_list), batch_size):
+                inputs = self.tokenizer(smiles_list[i:i+batch_size], return_tensors="pt", padding=True, truncation=True).to(device)
+
+                with torch.no_grad():
+                    outputs = self.model(**inputs)
+
+                # 보통 [CLS] 토큰 또는 평균 pooling을 사용
+                if feature == 'chemberta':
+                    embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy()   # [CLS] 토큰 (batch, hidden_dim)
+                elif feature == 'molformer':
+                    embeddings = outputs.pooler_output.cpu().numpy()
+                embedding.append(embeddings)
+
+            # self.x = np.concatenate(embedding, axis=0)
+            result = np.concatenate(embedding, axis=0)
+            np.save(f"/data2/project/junha/traversing_chem_space/data/{dataset}/chemberta_embeddings_{name}.npy", result)
+            # self.x = np.concatenate([self.x, self.chemberta], axis=1)
+
+        ################### unimol ################
+        elif feature == 'unimol':
+            result = np.load(f"/data2/project/junha/traversing_chem_space/data/{dataset}/unimol_embeddings.npy")
+            # self.x = np.load(f"/data2/project/junha/traversing_chem_space/data/{dataset}/unimol_embeddings.npy")
+            # self.x = np.concatenate([self.x, self.chemberta], axis=1)
+        elif 'brics' in feature:
+            self.brics = get_brics(self.smiles, dataset, split=name)
+            result = self.x
+        return result
+
+    def process(self, df: pd.DataFrame):
+
+        print('Processing data ... ', flush=True, file=sys.stderr)
+
+        index_smiles = OrderedDict({i: smi for i, smi in enumerate(df.smiles)})
+        smiles_index = OrderedDict({smi: i for i, smi in enumerate(df.smiles)})
+        smiles = np.array(df.smiles.tolist())
+        x = smiles_to_ecfp(smiles, silent=False)
+        y = torch.tensor(df.y.tolist())
+        graphs = [smiles_to_graph(smi, y=y.type(torch.LongTensor)) for smi, y in tqdm(zip(smiles, y))]
+        graph2_list = []
+
+        for i, graph in tqdm(enumerate(graphs)):
+            graph.fp = torch.tensor([x[i]], dtype=torch.float32)
+
+            mol = Chem.MolFromSmiles(graph.smiles, sanitize=True)
+            xp, edgep_index, edgep_attr = mol_to_graph_data_obj_simple_3D(mol)
+            graph.xp = xp
+            graph.edgep_index = edgep_index
+            graph.edgep_attr = edgep_attr
+
+            graph2_list.append(graph)
+
+        return index_smiles, smiles_index, smiles, x, y, graphs, graph2_list
+
+    def load(self) -> (dict, dict, np.ndarray, np.ndarray, np.ndarray, list):
+
+        print('Loading data ... ', flush=True, file=sys.stderr)
+
+        index_smiles = torch.load(os.path.join(self.pth, 'index_smiles'))
+        smiles_index = torch.load(os.path.join(self.pth, 'smiles_index'))
+        smiles = torch.load(os.path.join(self.pth, 'smiles'))
+        x = torch.load(os.path.join(self.pth, 'x'))
+        y = torch.load(os.path.join(self.pth, 'y'))
+        graphs = torch.load(os.path.join(self.pth, 'graphs'))
+
+        return smiles_index, index_smiles, smiles, x, y, graphs
+
+    def __len__(self) -> int:
+        return len(self.smiles)
+
+    def all(self):
+        return self[range(len(self.smiles))]
+
+    def __getitem__(self, idx):
+        if type(idx) is int:
+            idx = [idx]
+        if self.representation == 'ecfp':
+            return self.x[idx], self.y[idx], self.smiles[idx], [self.feature[i][idx] for i in range(len(self.feature))]
+        if self.representation == 'graph':
+            return [self.graphs[i] for i in idx], self.y[idx], self.smiles[idx], [self.feature[i][idx] for i in range(len(self.feature))]
+        if self.representation == 'scaffold':
+            return self.x[idx], self.y[idx], self.smiles[idx], self.x[idx], self.murcko[idx]
+
 
 def smi_to_scaff(smiles: str, includeChirality: bool = False):
     return MurckoScaffold.MurckoScaffoldSmiles(mol=Chem.MolFromSmiles(smiles), includeChirality=includeChirality)

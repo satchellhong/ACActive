@@ -7,18 +7,15 @@ from tqdm.auto import tqdm
 
 import itertools
 import argparse
-from active_learning.screening_ import active_learning
+# from active_learning.screening_ import active_learning
+from active_learning.screening_v2 import active_learning
 import logging
 import glob
 
-PARAMETERS = {'max_screen_size': [1000],
-              'n_start': [64],
-              'batch_size': [64, 32, 16],
-              'architecture': ['gcn', 'mlp', 'gin', 'gat', 'rf'],
+PARAMETERS = {'batch_size': [64, 32, 16],
+              'architecture': ['mlp', 'gin', 'graphMVP'],
               'dataset': ['ALDH1', 'PKM2', 'VDR'],
               'seed': list(range(0,1)),
-              'bias': ['random', 'small', 'large'],
-              'acquisition': ['random', 'exploration', 'exploitation', 'dynamic', 'dynamicbald', 'similarity', 'bald', 'epig', 'pi', 'ei', 'ts']
               }
 
 
@@ -29,7 +26,6 @@ if __name__ == '__main__':
     parser.add_argument('-acq', help="Acquisition function ('random', 'exploration', 'exploitation', 'dynamic', "
                                      "'similarity')", default='random')
     parser.add_argument('-bias', help='The level of bias ("random", "small", "large")', default='random')
-    parser.add_argument('-arch', help='The neural network architecture ("gcn", "mlp")', default='mlp')
     parser.add_argument('-dataset', help='The dataset ("ALDH1", "PKM2", "VDR")', default='ALDH1')
     parser.add_argument('-retrain', help='Retrain the model every cycle', default='True')
     parser.add_argument('-batch_size', help='How many molecules we select each cycle', default=64)
@@ -59,27 +55,23 @@ if __name__ == '__main__':
     parser.add_argument('--input_smiles_col', help='labeled input csv smiles column name', default='smiles')
     parser.add_argument('--input_unlabel_smiles_col', help='unlabeled input csv smiles column name', default='smiles')
     parser.add_argument("--is_reverse", help='small value are better', action="store_true")
+    parser.add_argument('--arch', help='The neural network architecture ("graphMVP", "gin", "mlp")', default='graphMVP')
+    parser.add_argument('--pretrain_path', help='graphMVP pretrained path', default='./pretrain/GraphMVP/pretraining_model.pth')
     args = parser.parse_args()
     
     rround=0
     args.dataset = args.input
     start = 0
     args.start = start
-    PARAMETERS['acquisition'] = [args.acq]
-    PARAMETERS['bias'] = [args.bias]
     PARAMETERS['dataset'] = [args.dataset]
-    PARAMETERS['retrain'] = [eval(args.retrain)]
     PARAMETERS['architecture'] = [args.arch]
     PARAMETERS['batch_size'] = [int(args.batch_size)]
-    PARAMETERS['n_start'] = [int(args.n_start)]
-    PARAMETERS['n_start'] = [int(args.n_start)]
     PARAMETERS['anchored'] = [eval(args.anchored)]
     PARAMETERS['scrambledx'] = [eval(args.scrambledx)]
     PARAMETERS['scrambledx_seed'] = [int(args.scrambledx_seed)]
     PARAMETERS['cycle_threshold'] = [int(args.cycle_threshold)]
     PARAMETERS['cluster'] = [int(args.cluster)]
     PARAMETERS['sorted'] =  [args.sorted]
-    PARAMETERS['start'] =  [int(args.start)]
     PARAMETERS['feature'] =  [args.feature]
     PARAMETERS['hidden'] =  [int(args.hidden)]
     PARAMETERS['at_hidden'] =  [int(args.at_hidden)]
@@ -101,22 +93,16 @@ if __name__ == '__main__':
 
 
     for experiment in tqdm(experiments):
-        results = active_learning(dir=dir_name, n_start=experiment['n_start'],
-                                bias=experiment['bias'],
-                                acquisition_method=experiment['acquisition'],
-                                max_screen_size=experiment['max_screen_size'],
+        results = active_learning(dir=dir_name,
                                 batch_size=experiment['batch_size'],
                                 architecture=experiment['architecture'],
                                 seed=experiment['seed'],
-                                retrain=experiment['retrain'],
                                 anchored=experiment['anchored'],
                                 dataset=experiment['dataset'],
                                 scrambledx=experiment['scrambledx'],
                                 scrambledx_seed=experiment['scrambledx_seed'],
-                                optimize_hyperparameters=False,
                                 cycle_threshold=experiment['rround'],
                                 beta = experiment['beta'],
-                                start = experiment['start'],
                                 feature = experiment['feature'], 
                                 hidden=experiment['hidden'],
                                 at_hidden=experiment['at_hidden'],
@@ -132,7 +118,8 @@ if __name__ == '__main__':
                                 input_unlabel_val_col=args.input_unlabel_val_col,
                                 input_smiles_col=args.input_smiles_col,
                                 input_unlabel_smiles_col=args.input_unlabel_smiles_col,
-                                is_reverse=args.is_reverse)
+                                is_reverse=args.is_reverse,
+                                pretrain_path=args.pretrain_path)
 
     def cleanup_unimol_tools_logs():
         # 1) 열려 있는 FileHandler 닫기
